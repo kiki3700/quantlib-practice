@@ -30,7 +30,7 @@ def GET_DATE():
     return date
 
 def GET_QUOTE(eval_date):
-    driver = webdriver.Chrome('C:\chromedriver',options=options)
+    driver = webdriver.Chrome('/home/ben/chromedriver',options=options)
     tenors = ['01M', '03M', '06M', '01Y', '02Y', '03Y', '05Y', '07Y', '10Y', '30Y']
     
     ## Create Empty Lists
@@ -83,7 +83,104 @@ def GET_QUOTE(eval_date):
     df.set_index('maturity', inplace = True)
     return df
 
+def TREASURY_CURVE(eval_date, rate_table):
+    
+    #Divide Quotes
+    tbill = rate_table[0:4]
+    tbond = rate_table[4:]
+    
+    # set evaluation Date
+    eval_date = ql.Date(eval_date.day, eval_date.month, eval_date.year)
+    ql.Settings.instance().evaluationDate = eval_date
+    
+    #Set market Convention
+    calendar =ql.UnitedStates()
+    convention = ql.ModifiedFollowing
+    dayCounter = ql.ActualActual()
+    endOfMonth = False
+    fixingDays = 1 #when fix rate => one day ago
+    faceAmount = 100
+    frequency = ql.Period(ql.Semiannual)
+    dateGeneration = ql.DateGeneration.Backward
+    
+    # Construct Treasury bill helpers
+    bill_helpers = [ql.DepositRateHelper(ql.QuoteHandle(ql.SimpleQuote(price/100.0)),
+                                          ql.Period(maturity, ql.Days),
+                                          fixingDays,
+                                          calendar,
+                                          convention,
+                                          endOfMonth,
+                                          dayCounter)
+                     for price, maturity in zip(tbill['price'], tbill['days'])]
+    
+    # Consturct Treasury bonds helpers
+    bond_helpers = []
+    for price, coupon, maturity in zip(tbond['price'], tbond['coupon'], tbond['days']):
+        maturity_date = eval_date + ql.Period(maturity, ql.Days)
+        schedule = ql.Schedule(eval_date,
+                                maturity_date,
+                                frequency,
+                                calendar,
+                                convention,
+                                convention,
+                                dateGeneration,
+                                endOfMonth)
+        bond_helper = ql.FixedRateBondHelper(ql.QuoteHandle(ql.SimpleQuote(price)),
+                                            fixingDays,
+                                            faceAmount,
+                                            schedule,
+                                            [coupon/100.0],
+                                            dayCounter,
+                                            convention)
+        bond_helpers.append(bond_helper)
+    #bind helper
+    rate_helper = bill_helpers+bond_helpers
+    
+    #boild curve 
+    curve = ql.PiecewiseLinearZero(eval_date,
+                                   rate_helper,
+                                   dayCounter)
+    
+    return curve
+
+def DISCOUNT_FACTOR(date, curve):
+    date = ql.Date(date.day, date.month, date.year)
+    discount_factor = curve.discount(date)
+    return discount_factor
+
+def ZERO_RATE(date, curve):
+    date = ql.Date(date.day, date.month, date.year)
+    dayCount = ql.ActualActual()
+    compounding = ql.Compounded
+    frequency = ql.Continuous
+    zero_rate = curve.zeroRate(date, dayCount, compounding, frequency).rate()
+    return zero_rate
+    
+    
 if __name__=="__main__":
     eval_date = GET_DATE()
     rate_table = GET_QUOTE(eval_date)
+    curve = TREASURY_CURVE(eval_date, rate_table)
+    
+    rate_table['discount factor'] = np.nan
+    rate_table['zero rate'] = np.nan
+    
+    for date in rate_table.index:
+        rate_table.loc[date, 'discount factor']=DISCOUNT_FACTOR(date, curve)
+        rate_table.loc[date, 'zero rate'] = ZERO_RATE(date, curve)
+        
+    #print(rate_table[['discount factor', 'zero rate']])
+    
+    #Visualization
+    plt.figure(figsize=(10,8))
+    plt.plot(rate_table['zero rate'],'b.-')
+    plt.title('Zero Curve', loc ='center')
+    plt.xlabel('maturity')
+    plt.ylabel('zro rate')
+    
+    plt.figure(figsize=(10, 8))
+    plt.plot(rate_table['discount factor'],'r.-')
+    plt.title("dicount foctor', loc = 'center")
+    plt.xlabel("maturity")
+    plt.ylabel("dicount factor")
     
