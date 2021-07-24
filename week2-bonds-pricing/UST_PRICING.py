@@ -59,3 +59,22 @@ print("clean price = {}".format(clean_price))
 print("accrued interest = {}".format(accrued_interest))
 print('dirty price = {}'.format(dirty_price))
 print("Yield to maturiry ={}".format(ytm))
+
+#Generate cashflow table
+for cashflow in fixedRateBond.cashflows():
+    print(cashflow.date(), cashflow.amount())
+    
+#calculatie YTM
+new_ytm = ql.InterestRate(fixedRateBond.bondYield(dayCounter,
+                                                  ql.Compounded,
+                                                  ql.Semiannual),
+                          dayCounter,
+                          ql.Compounded,
+                          ql.Semiannual)
+
+#Duration&convexity
+duration = ql.BondFunctions.duration(fixedRateBond, new_ytm)
+convexity = ql.BondFunctions.convexity(fixedRateBond, new_ytm)
+
+print("DUration = {}".format(duration))
+print("convexity = {}".format(convexity))
